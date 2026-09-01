@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Προσωπικός Βοηθός</title>
+  <style>
+    /*
+      Όλο το CSS είναι εδώ (όχι ξεχωριστό αρχείο) ώστε το UI να είναι ΕΝΑ
+      αυτόνομο αρχείο - πιο εύκολο να το καταλάβεις και να το τροποποιήσεις.
+    */
+    :root {
+      --bg: #f7f7f8;
+      --surface: #ffffff;
+      --border: #e3e3e6;
+      --text: #1f1f24;
+      --text-muted: #6b6b73;
+      --accent: #2563eb;
+      --user-bubble: #2563eb;
+      --user-text: #ffffff;
+      --error: #dc2626;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+
+    #new-chat, #briefing-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #new-chat:hover, #briefing-btn:hover { background: var(--bg); }
+    #briefing-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Η περιοχή των μηνυμάτων - παίρνει όλο τον διαθέσιμο χώρο και σκρολάρει */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .msg { max-width: 720px; width: 100%; margin: 0 auto; display: flex; }
+    .msg.user { justify-content: flex-end; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 14px;
+      line-height: 1.55;
+      font-size: 15px;
+      white-space: pre-wrap;   /* διατηρεί τις αλλαγές γραμμής του agent */
+      word-wrap: break-word;
+      max-width: 85%;
+    }
+
+    .msg.user .bubble {
+      background: var(--user-bubble);
+      color: var(--user-text);
+      border-bottom-right-radius: 4px;
+    }
+
+    .msg.assistant .bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg.error .bubble {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: var(--error);
+    }
+
+    .bubble ul, .bubble ol { margin: 8px 0; padding-left: 22px; }
+    .bubble code {
+      background: #f1f1f3;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .msg.user .bubble code { background: rgba(255,255,255,0.2); }
+
+    /* Κινούμενες τελείες όσο περιμένουμε απάντηση */
+    .typing { display: flex; gap: 4px; padding: 4px 0; }
+    .typing span {
+      width: 7px; height: 7px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      animation: bounce 1.3s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-4px); }
+    }
+
+    #empty-state {
+      margin: auto;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 460px;
+    }
+    #empty-state strong { color: var(--text); display: block; margin-bottom: 10px; font-size: 16px; }
+
+    /* --- Κάρτα έγκρισης ενέργειας --- */
+    .confirm-card {
+      max-width: 720px;
+      width: 100%;
+      margin: 0 auto;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    .confirm-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #92400e;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .confirm-action {
+      background: var(--surface);
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      margin-bottom: 10px;
+    }
+
+    .confirm-buttons { display: flex; gap: 10px; }
+
+    .confirm-buttons button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+
+    .btn-approve { background: #16a34a; color: #fff; }
+    .btn-approve:hover { background: #15803d; }
+    .btn-decline { background: var(--surface); color: var(--text); border-color: var(--border); }
+    .btn-decline:hover { background: #f3f4f6; }
+    .confirm-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 14px 20px;
+      flex-shrink: 0;
+    }
+
+    #composer {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #input {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 14px;
+      font-size: 15px;
+      font-family: inherit;
+      resize: none;
+      max-height: 160px;
+      outline: none;
+    }
+    #input:focus { border-color: var(--accent); }
+
+    #send {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 11px 20px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    #send:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #hint {
+      max-width: 720px;
+      margin: 8px auto 0;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Προσωπικός Βοηθός</h1>
+    <div style="display:flex; gap:8px;">
+      <button id="briefing-btn" title="Δείχνει τη σημερινή σου ενημέρωση">
+        Η ημέρα μου
+      </button>
+      <button id="new-chat" title="Ξεκινάει νέα συνομιλία - ο βοηθός ξεχνάει τα προηγούμενα">
+        Νέα συνομιλία
+      </button>
+    </div>
+  </header>
+
+  <div id="messages">
+    <div id="empty-state">
+      <strong>Πώς μπορώ να βοηθήσω;</strong>
+      Έχω πρόσβαση στο ημερολόγιο και στα email σου.<br>
+      Δοκίμασε: «Τι έχω αύριο;» ή «Γράψε ένα email στον Γιάννη»
+    </div>
+  </div>
+
+  <footer>
+    <div id="composer">
+      <textarea id="input" rows="1" placeholder="Γράψε ένα μήνυμα..." autofocus></textarea>
+      <button id="send">Αποστολή</button>
+    </div>
+    <div id="hint">Enter για αποστολή · Shift+Enter για νέα γραμμή</div>
+  </footer>
+
+<script>
+/*
+  ============================================================
+  Η λογική του UI. Καθαρή JavaScript, χωρίς καμία βιβλιοθήκη.
+  ============================================================
+*/
+
+const messagesEl = document.getElementById("messages");
+const inputEl = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const newChatBtn = document.getElementById("new-chat");
+
+/*
+  --- Διαχείριση session ---
+  Το session_id καθορίζει ποιο ιστορικό φορτώνει ο agent από το Redis.
+  Το αποθηκεύουμε στο localStorage ώστε να ΕΠΙΒΙΩΝΕΙ αν κάνεις refresh
+  τη σελίδα - αλλιώς θα έχανες τη συνομιλία σε κάθε reload.
+*/
+function getSessionId() {
+  let id = localStorage.getItem("assistant_session_id");
+  if (!id) {
+    id = newSessionId();
+    localStorage.setItem("assistant_session_id", id);
+  }
+  return id;
+}
+
+function newSessionId() {
+  // Απλό μοναδικό id: τρέχων χρόνος + τυχαίο κομμάτι.
+  return "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+let sessionId = getSessionId();
+
+/*
+  --- Ασφαλής εμφάνιση κειμένου ---
+  Ο agent επιστρέφει Markdown (**έντονα**, λίστες, κλπ). Θέλουμε να το
+  εμφανίσουμε όμορφα, ΑΛΛΑ χωρίς να επιτρέψουμε εκτέλεση HTML/JavaScript.
+
+  Γιατί έχει σημασία: ο agent διαβάζει τα ΠΡΑΓΜΑΤΙΚΑ σου email. Αν κάποιο
+  email περιέχει κακόβουλο HTML και ο agent το επαναλάβει στην απάντησή του,
+  δεν θέλουμε να εκτελεστεί στη σελίδα σου. Γι' αυτό κάνουμε ΠΡΩΤΑ escape
+  όλων των ειδικών χαρακτήρων, και ΜΕΤΑ εφαρμόζουμε το markdown.
+*/
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function renderMarkdown(text) {
+  let html = escapeHtml(text);
+
+  // Κώδικας σε `backticks`
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // **έντονα**
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // *πλάγια* (μόνο όταν δεν είναι αρχή γραμμής, για να μην πιάσει λίστες)
+  html = html.replace(/(^|[^*\n])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  // Γραμμές λίστας που ξεκινούν με * ή - -> τις κάνουμε bullets
+  html = html.replace(/^\s*[\*\-]\s+(.+)$/gm, "• $1");
+
+  return html;
+}
+
+/*
+  --- Προσθήκη μηνύματος στην οθόνη ---
+  role: "user" | "assistant" | "error"
+*/
+function addMessage(role, text) {
+  document.getElementById("empty-state")?.remove();
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "msg " + role;
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+
+  if (role === "user") {
+    // Τα μηνύματα του χρήστη τα δείχνουμε ως σκέτο κείμενο (χωρίς markdown).
+    bubble.textContent = text;
+  } else {
+    bubble.innerHTML = renderMarkdown(text);
+  }
+
+  wrapper.appendChild(bubble);
+  messagesEl.appendChild(wrapper);
+  scrollToBottom();
+  return wrapper;
+}
+
+function addTypingIndicator() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "msg assistant";
+  wrapper.innerHTML =
+    '<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>';
+  messagesEl.appendChild(wrapper);
+  scrollToBottom();
+  return wrapper;
+}
+
+function scrollToBottom() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+/*
+  --- Κάρτα έγκρισης ---
+  Εμφανίζεται όταν ο agent θέλει να κάνει κάτι που αλλάζει δεδομένα
+  (στείλει email, φτιάξει event). Δείχνει ΑΚΡΙΒΩΣ τι πάει να γίνει και
+  περιμένει ρητή απόφαση.
+
+  Σημαντικό: η περιγραφή έρχεται από τον server, φτιαγμένη απευθείας από
+  τα ορίσματα του εργαλείου - δεν είναι κάτι που "λέει" το μοντέλο. Άρα
+  βλέπεις την πραγματική ενέργεια, ακόμα κι αν το μοντέλο έχει παρασυρθεί.
+*/
+function addConfirmCard(actions) {
+  const card = document.createElement("div");
+  card.className = "confirm-card";
+
+  const title = document.createElement("div");
+  title.className = "confirm-title";
+  title.textContent = "Απαιτείται η έγκρισή σου";
+  card.appendChild(title);
+
+  actions.forEach((action) => {
+    const box = document.createElement("div");
+    box.className = "confirm-action";
+    box.textContent = action;   // textContent = δεν εκτελείται HTML
+    card.appendChild(box);
+  });
+
+  const buttons = document.createElement("div");
+  buttons.className = "confirm-buttons";
+
+  const approve = document.createElement("button");
+  approve.className = "btn-approve";
+  approve.textContent = "Ναι, προχώρα";
+
+  const decline = document.createElement("button");
+  decline.className = "btn-decline";
+  decline.textContent = "Όχι, ακύρωση";
+
+  // Μόλις απαντήσει, απενεργοποιούμε τα κουμπιά ώστε να μην πατηθούν δύο
+  // φορές (π.χ. διπλό κλικ = δύο emails).
+  function respond(approved) {
+    approve.disabled = true;
+    decline.disabled = true;
+    approve.textContent = approved ? "Εγκρίθηκε" : "Ναι, προχώρα";
+    decline.textContent = approved ? "Όχι, ακύρωση" : "Ακυρώθηκε";
+    sendMessage(approved ? "Ναι" : "Όχι", approved);
+  }
+
+  approve.addEventListener("click", () => respond(true));
+  decline.addEventListener("click", () => respond(false));
+
+  buttons.appendChild(approve);
+  buttons.appendChild(decline);
+  card.appendChild(buttons);
+
+  messagesEl.appendChild(card);
+  scrollToBottom();
+}
+
+/*
+  --- Αποστολή μηνύματος στο backend ---
+
+  Παράμετροι:
+    overrideText: όταν καλείται από τα κουμπιά έγκρισης, το κείμενο δεν
+        έρχεται από το πεδίο εισαγωγής.
+    confirmFlag:  true/false όταν απαντάμε σε αίτημα έγκρισης, αλλιώς null.
+*/
+async function sendMessage(overrideText = null, confirmFlag = null) {
+  const text = overrideText !== null ? overrideText : inputEl.value.trim();
+  if (!text) return;
+
+  addMessage("user", text);
+
+  if (overrideText === null) {
+    inputEl.value = "";
+    autoResize();
+  }
+
+  setBusy(true);
+  const typing = addTypingIndicator();
+
+  try {
+    const response = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        session_id: sessionId,
+        confirm: confirmFlag,
+      }),
+    });
+
+    typing.remove();
+
+    if (!response.ok) {
+      addMessage(
+        "error",
+        "Ο διακομιστής επέστρεψε σφάλμα (" + response.status + "). " +
+        "Δες το terminal όπου τρέχει ο server για λεπτομέρειες."
+      );
+      return;
+    }
+
+    const data = await response.json();
+    addMessage("assistant", data.response);
+
+    // Ζητάει ο agent έγκριση για κάποια ενέργεια;
+    if (data.pending_confirmation && data.pending_confirmation.actions) {
+      addConfirmCard(data.pending_confirmation.actions);
+    }
+
+  } catch (err) {
+    typing.remove();
+    addMessage(
+      "error",
+      "Δεν ήταν δυνατή η σύνδεση με τον διακομιστή. " +
+      "Βεβαιώσου ότι τρέχει το uvicorn."
+    );
+  } finally {
+    setBusy(false);
+    inputEl.focus();
+  }
+}
+
+function setBusy(busy) {
+  sendBtn.disabled = busy;
+  inputEl.disabled = busy;
+}
+
+/*
+  --- Το textarea μεγαλώνει καθώς γράφεις (μέχρι το max-height του CSS) ---
+*/
+function autoResize() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = inputEl.scrollHeight + "px";
+}
+
+// --- Event listeners ---
+
+// Προσοχή: τυλίγουμε τη sendMessage σε arrow function. Αν περνούσαμε
+// κατευθείαν τη συνάρτηση, ο browser θα της έδινε το click Event ως πρώτο
+// όρισμα - που πλέον σημαίνει "overrideText", και θα έστελνε το Event
+// αντί για το κείμενο του χρήστη.
+sendBtn.addEventListener("click", () => sendMessage());
+
+inputEl.addEventListener("input", autoResize);
+
+inputEl.addEventListener("keydown", (e) => {
+  // Enter = αποστολή, Shift+Enter = νέα γραμμή (όπως στα περισσότερα chat apps)
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+newChatBtn.addEventListener("click", () => {
+  sessionId = newSessionId();
+  localStorage.setItem("assistant_session_id", sessionId);
+  messagesEl.innerHTML =
+    '<div id="empty-state"><strong>Νέα συνομιλία</strong>' +
+    'Ο βοηθός ξεκινάει από την αρχή, χωρίς μνήμη των προηγούμενων.</div>';
+  inputEl.focus();
+});
+
+/*
+  --- Πρωινή ενημέρωση ---
+  Ζητάει από τον server τη σημερινή ενημέρωση. Αν δεν έχει δημιουργηθεί
+  ακόμα (π.χ. το Mac κοιμόταν στις 8:30), ο server τη φτιάχνει εκείνη τη
+  στιγμή - γι' αυτό μπορεί να αργήσει λίγα δευτερόλεπτα την πρώτη φορά.
+*/
+const briefingBtn = document.getElementById("briefing-btn");
+
+briefingBtn.addEventListener("click", async () => {
+  briefingBtn.disabled = true;
+  briefingBtn.textContent = "Φορτώνει...";
+
+  document.getElementById("empty-state")?.remove();
+  const typing = addTypingIndicator();
+
+  try {
+    const response = await fetch("/briefing");
+    typing.remove();
+
+    if (!response.ok) {
+      addMessage("error", "Σφάλμα κατά τη δημιουργία της ενημέρωσης (" + response.status + ").");
+      return;
+    }
+
+    const data = await response.json();
+    addMessage("assistant", data.briefing);
+
+  } catch (err) {
+    typing.remove();
+    addMessage("error", "Δεν ήταν δυνατή η σύνδεση με τον διακομιστή.");
+  } finally {
+    briefingBtn.disabled = false;
+    briefingBtn.textContent = "Η ημέρα μου";
+  }
+});
+</script>
+
+</body>
+</html>

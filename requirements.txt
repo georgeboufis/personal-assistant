@@ -1,0 +1,39 @@
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Config management ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- Agent orchestration ---
+langgraph==1.2.11
+langchain-core>=1.0.0,<2.0.0
+
+# --- LLM backend: Google Gemini (free tier) instead of OpenAI ---
+# v4.x χρησιμοποιεί το νεο, ενοποιημενο google-genai SDK - απαραιτητο
+# για σωστο tool-calling με τα μοντελα Gemini 3.x (η παλια 2.x σειρα
+# αγνοουσε σιωπηλα τα tools με Gemini 3.x, χωρις καν error).
+langchain-google-genai==4.2.5
+
+# --- Memory / state store ---
+redis==5.2.1
+
+# --- Google APIs (Calendar, Gmail) - free for personal use ---
+google-api-python-client==2.157.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.1
+
+# --- MCP (Model Context Protocol) ---
+mcp==1.1.2
+
+# --- Scheduler (προγραμματισμενες εργασιες, π.χ. πρωινη ενημερωση) ---
+apscheduler==3.11.3
+
+# --- Utilities ---
+python-dotenv==1.0.1
+
+# --- Testing (dev only) ---
+pytest==9.1.1
+pytest-cov==7.1.0
+httpx==0.28.1
