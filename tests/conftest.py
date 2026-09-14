@@ -57,10 +57,16 @@ def clear_caches():
         from app.core.llm_client import get_llm
         from app.agents.graph import get_agent, _get_llm_with_tools
 
-        get_settings.cache_clear()
-        get_llm.cache_clear()
-        get_agent.cache_clear()
-        _get_llm_with_tools.cache_clear()
+        # Χρησιμοποιούμε getattr με έλεγχο, αντί να καλέσουμε κατευθείαν
+        # .cache_clear(). Λόγος: όταν ένα test έχει αντικαταστήσει κάποια
+        # από αυτές τις functions με mock, το mock ΔΕΝ έχει cache_clear.
+        # Ανάλογα με τη σειρά που το pytest αναιρεί τα mocks, μπορεί να
+        # φτάσουμε εδώ ενώ η αντικατάσταση ισχύει ακόμα - και θα σκάγαμε
+        # στο teardown ενός test που πέρασε κανονικά.
+        for func in (get_settings, get_llm, get_agent, _get_llm_with_tools):
+            cache_clear = getattr(func, "cache_clear", None)
+            if cache_clear is not None:
+                cache_clear()
 
     _clear()
     yield
@@ -184,6 +190,65 @@ def fake_gmail(monkeypatch):
     return service
 
 
+class RealGoogleAuthAttempted(BaseException):
+    """
+    Σηματοδοτεί ότι ένα test προσπάθησε να κάνει πραγματικό OAuth.
+
+    Κληρονομεί από BaseException και ΟΧΙ από Exception επίτηδες: ο κώδικας
+    της εφαρμογής πιάνει `except Exception` σε πολλά σημεία (σκόπιμα, για
+    να μη ρίχνει ένα σφάλμα API ολόκληρη τη ροή). Αν αυτή η προειδοποίηση
+    ήταν κοινό Exception, θα την κατάπινε αυτός ακριβώς ο μηχανισμός και
+    η διαρροή θα έμενε αόρατη.
+    """
+
+
+@pytest.fixture(autouse=True)
+def block_real_google_auth(monkeypatch):
+    """
+    ΔΙΚΛΕΙΔΑ ΑΣΦΑΛΕΙΑΣ: κανένα test δεν επιτρέπεται να αγγίξει πραγματικό
+    OAuth.
+
+    Γιατί υπάρχει: ένα test που ξεχνάει να αντικαταστήσει ένα Google
+    service "πέφτει" στον πραγματικό κώδικα. Σε μηχάνημα χωρίς
+    credentials.json αυτό σκάει αθόρυβα και το test φαίνεται να περνάει.
+    Σε μηχάνημα ΜΕ credentials.json ανοίγει browser και κάνει αληθινό
+    OAuth - δηλαδή τα tests χτυπάνε τον πραγματικό λογαριασμό του χρήστη.
+
+    Ακριβώς αυτό συνέβη: το test της πρωινής ενημέρωσης αντικαθιστούσε
+    calendar και gmail, αλλά όχι tasks. Στο μηχάνημα του προγραμματιστή
+    (χωρίς credentials.json) περνούσε· στο πραγματικό μηχάνημα άνοιξε
+    OAuth flow και το suite άργησε 19 δευτερόλεπτα αντί για 4.
+    """
+
+    def refuse():
+        raise RealGoogleAuthAttempted(
+            "Ένα test προσπάθησε να κάνει ΠΡΑΓΜΑΤΙΚΟ Google OAuth. "
+            "Πιθανότατα λείπει κάποιο fixture (fake_calendar / fake_gmail / "
+            "fake_tasks) από το test."
+        )
+
+    monkeypatch.setattr("app.core.google_auth.get_google_credentials", refuse)
+
+
+@pytest.fixture
+def fake_tasks(monkeypatch):
+    """Αντικαθιστά το Google Tasks service με mock."""
+    service = MagicMock()
+    tasks = service.tasks.return_value
+    tasks.list.return_value.execute.return_value = {"items": []}
+    tasks.insert.return_value.execute.return_value = {"id": "task-test"}
+    tasks.patch.return_value.execute.return_value = {
+        "id": "task-test",
+        "title": "Δοκιμαστική",
+        "status": "completed",
+    }
+    tasks.delete.return_value.execute.return_value = {}
+    monkeypatch.setattr(
+        "app.tools.tasks_tool._get_tasks_service", lambda: service
+    )
+    return service
+
+
 @pytest.fixture
 def no_scheduler(monkeypatch):
     """
@@ -194,6 +259,22 @@ def no_scheduler(monkeypatch):
     """
     monkeypatch.setattr("app.core.scheduler.start_scheduler", lambda: None)
     monkeypatch.setattr("app.core.scheduler.stop_scheduler", lambda: None)
+
+
+@pytest.fixture
+def client(fake_redis, no_scheduler):
+    """
+    TestClient με απενεργοποιημένο scheduler και ψεύτικο Redis.
+
+    Το `with` είναι απαραίτητο: ενεργοποιεί το lifespan του FastAPI
+    (εκκίνηση/τερματισμό), που είναι μέρος αυτού που θέλουμε να ελέγξουμε.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        yield c
 
 
 # ---------------------------------------------------------------------------

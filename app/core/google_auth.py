@@ -35,6 +35,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 # - calendar.events: read + write events (ΟΧΙ διαχείριση calendars/settings)
 # - gmail.readonly:  ΜΟΝΟ ανάγνωση emails (δεν επιτρέπει καμία αλλαγή)
 # - gmail.compose:   δημιουργία/επεξεργασία προχείρων ΚΑΙ αποστολή
+# - tasks:           read + write στη λίστα εργασιών
 #
 # ΣΗΜΕΙΩΣΗ: δεν ζητάμε gmail.modify (θα επέτρεπε διαγραφές/αλλαγές labels)
 # ούτε το πλήρες mail.google.com scope - δεν τα χρειαζόμαστε.
@@ -42,6 +43,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/tasks",
 ]
 
 # Πού βρίσκονται τα δύο αρχεία - στο ROOT του project, όχι μέσα στο app/,

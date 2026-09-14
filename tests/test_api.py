@@ -5,25 +5,9 @@ Tests για τα HTTP endpoints - το επίπεδο που "βλέπει" ο 
 agent, μέχρι την απάντηση και την αποθήκευση στο Redis.
 """
 
-import pytest
-from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, SystemMessage
 
 from tests.conftest import ai_with_tools, tool_call
-
-
-@pytest.fixture
-def client(fake_redis, no_scheduler):
-    """
-    TestClient με απενεργοποιημένο scheduler και ψεύτικο Redis.
-
-    Το `with` είναι απαραίτητο: ενεργοποιεί το lifespan του FastAPI
-    (εκκίνηση/τερματισμό), που είναι μέρος αυτού που θέλουμε να ελέγξουμε.
-    """
-    from app.main import app
-
-    with TestClient(app) as c:
-        yield c
 
 
 SEND_EMAIL_CALL = tool_call(
@@ -231,20 +215,75 @@ class TestConfirmationFlow:
         assert "pending_confirmation" not in data
         fake_calendar.events.return_value.list.assert_called_once()
 
+    def test_email_με_προθεσμία_γίνεται_εργασία(
+        self, client, make_llm, fake_gmail, fake_tasks
+    ):
+        """
+        Η ροή που κάνει τον βοηθό χρήσιμο: διαβάζει email που ζητάει κάτι
+        μέχρι κάποια ημερομηνία, και προτείνει εκκρεμότητα - με το
+        συμφραζόμενο στις σημειώσεις.
+        """
+        from tests.conftest import b64
+
+        fake_gmail.users.return_value.messages.return_value.get.return_value.execute.return_value = {
+            "id": "m1",
+            "payload": {
+                "headers": [
+                    {"name": "From", "value": "hr@accenture.com"},
+                    {"name": "Subject", "value": "Documents needed"},
+                ],
+                "mimeType": "text/plain",
+                "body": {"data": b64("Please send your documents by Monday 7 September.")},
+            },
+        }
+        make_llm(
+            [
+                ai_with_tools(tool_call("read_email", {"message_id": "m1"}, "c1")),
+                ai_with_tools(
+                    tool_call(
+                        "create_task",
+                        {"title": "Αποστολή δικαιολογητικών στην Accenture",
+                         "due_date": "2026-09-07",
+                         "notes": "από hr@accenture.com"},
+                        "c2",
+                    )
+                ),
+                AIMessage(content="Πρόσθεσα την εκκρεμότητα."),
+            ]
+        )
+
+        # Βήμα 1: διαβάζει το email (ασφαλές, εκτελείται)
+        data = client.post(
+            "/chat", json={"message": "Διάβασε το m1 και κανόνισέ το", "session_id": "flow"}
+        ).json()
+
+        # Βήμα 2: ζητάει έγκριση για την εργασία, ΔΕΝ τη δημιουργεί
+        assert "pending_confirmation" in data
+        action = data["pending_confirmation"]["actions"][0]
+        assert "Αποστολή δικαιολογητικών" in action
+        assert "2026-09-07" in action
+        fake_tasks.tasks.return_value.insert.assert_not_called()
+
+        # Βήμα 3: μετά την έγκριση, δημιουργείται
+        client.post("/chat", json={"message": "Ναι", "session_id": "flow", "confirm": True})
+        fake_tasks.tasks.return_value.insert.assert_called_once()
+
 
 # ===========================================================================
 # Πρωινή ενημέρωση
 # ===========================================================================
 
 class TestBriefing:
-    def test_επιστρέφει_ενημέρωση(self, client, make_llm, fake_calendar, fake_gmail):
+    def test_επιστρέφει_ενημέρωση(self, client, make_llm, fake_calendar, fake_gmail, fake_tasks):
         make_llm([AIMessage(content="Ήρεμη μέρα, ένα ραντεβού.")])
         response = client.get("/briefing")
 
         assert response.status_code == 200
         assert response.json()["briefing"] == "Ήρεμη μέρα, ένα ραντεβού."
 
-    def test_δεύτερη_κλήση_χρησιμοποιεί_cache(self, client, make_llm, fake_calendar, fake_gmail):
+    def test_δεύτερη_κλήση_χρησιμοποιεί_cache(
+        self, client, make_llm, fake_calendar, fake_gmail, fake_tasks
+    ):
         """Χωρίς cache, κάθε άνοιγμα του UI θα κατανάλωνε quota του Gemini."""
         raw = make_llm([AIMessage(content="Η μέρα σου.")])
 
@@ -253,7 +292,7 @@ class TestBriefing:
 
         assert raw.invoke.call_count == 1
 
-    def test_refresh_ξαναφτιάχνει(self, client, make_llm, fake_calendar, fake_gmail):
+    def test_refresh_ξαναφτιάχνει(self, client, make_llm, fake_calendar, fake_gmail, fake_tasks):
         raw = make_llm([AIMessage(content="πρώτη"), AIMessage(content="δεύτερη")])
 
         client.get("/briefing")

@@ -32,7 +32,7 @@ ATHENS = ZoneInfo("Europe/Athens")
 @pytest.fixture
 def briefing_data(monkeypatch):
     """Ρυθμίζει τα δεδομένα που θα "διαβάσει" η ενημέρωση."""
-    state = {"events": [], "emails": []}
+    state = {"events": [], "emails": [], "tasks": []}
 
     monkeypatch.setattr(
         "app.tools.calendar_tool.get_events_for_day", lambda day: state["events"]
@@ -40,6 +40,10 @@ def briefing_data(monkeypatch):
     monkeypatch.setattr(
         "app.tools.gmail_tool.get_unread_emails",
         lambda max_results=10, newer_than_days=2: state["emails"],
+    )
+    monkeypatch.setattr(
+        "app.tools.tasks_tool.get_pending_tasks",
+        lambda max_results=20: state["tasks"],
     )
     return state
 
@@ -50,22 +54,23 @@ class TestBuildPrompt:
             datetime(2026, 9, 1, tzinfo=ATHENS),
             ["10:00 - Meeting"],
             ["Από: hr@accenture.com | Θέμα: Interview"],
+            ["Αποστολή CV (προθεσμία: 2026-09-05)"],
         )
         assert "10:00 - Meeting" in prompt
         assert "hr@accenture.com" in prompt
 
     def test_σημαίνει_τα_email_ως_δεδομένα(self):
         """Άμυνα σε prompt injection: το περιεχόμενο δεν είναι εντολές."""
-        prompt = _build_prompt(datetime(2026, 9, 1, tzinfo=ATHENS), [], [])
+        prompt = _build_prompt(datetime(2026, 9, 1, tzinfo=ATHENS), [], [], [])
         assert "ΠΟΤΕ οδηγίες" in prompt
         assert "ύποπτο" in prompt
 
     def test_χειρίζεται_κενές_λίστες(self):
-        prompt = _build_prompt(datetime(2026, 9, 1, tzinfo=ATHENS), [], [])
+        prompt = _build_prompt(datetime(2026, 9, 1, tzinfo=ATHENS), [], [], [])
         assert "(κανένα)" in prompt
 
     def test_περιλαμβάνει_την_ημερομηνία(self):
-        prompt = _build_prompt(datetime(2026, 9, 1, tzinfo=ATHENS), [], [])
+        prompt = _build_prompt(datetime(2026, 9, 1, tzinfo=ATHENS), [], [], [])
         assert "2026" in prompt
 
 
@@ -83,6 +88,7 @@ class TestGenerateBriefing:
     def test_περνάει_τα_δεδομένα_στο_prompt(self, fake_redis, make_llm, briefing_data):
         briefing_data["events"] = ["18:00 - Ιδιαίτερα AI"]
         briefing_data["emails"] = ["Από: hr@accenture.com | Θέμα: Interview"]
+        briefing_data["tasks"] = ["Αποστολή CV (προθεσμία: 2026-09-05)"]
 
         raw = make_llm([AIMessage(content="σύνοψη")])
         generate_briefing()
@@ -90,6 +96,30 @@ class TestGenerateBriefing:
         prompt = raw.invoke.call_args[0][0][0].content
         assert "18:00 - Ιδιαίτερα AI" in prompt
         assert "hr@accenture.com" in prompt
+        assert "Αποστολή CV" in prompt
+
+    def test_σφάλμα_εργασιών_δεν_ρίχνει_την_ενημέρωση(
+        self, fake_redis, make_llm, monkeypatch
+    ):
+        """Αν το Tasks API πέσει, τα υπόλοιπα πρέπει να παραδοθούν κανονικά."""
+        monkeypatch.setattr(
+            "app.tools.calendar_tool.get_events_for_day", lambda day: []
+        )
+        monkeypatch.setattr(
+            "app.tools.gmail_tool.get_unread_emails",
+            lambda max_results=10, newer_than_days=2: [],
+        )
+
+        def boom(max_results=20):
+            raise RuntimeError("Tasks API down")
+
+        monkeypatch.setattr("app.tools.tasks_tool.get_pending_tasks", boom)
+
+        raw = make_llm([AIMessage(content="Ήρεμη μέρα.")])
+        result = generate_briefing()
+
+        assert result == "Ήρεμη μέρα."
+        assert "Tasks API down" in raw.invoke.call_args[0][0][0].content
 
     def test_αποθηκεύει_το_αποτέλεσμα(self, fake_redis, make_llm, briefing_data):
         make_llm([AIMessage(content="Η μέρα σου.")])
@@ -112,6 +142,9 @@ class TestGenerateBriefing:
         monkeypatch.setattr(
             "app.tools.gmail_tool.get_unread_emails",
             lambda max_results=10, newer_than_days=2: [],
+        )
+        monkeypatch.setattr(
+            "app.tools.tasks_tool.get_pending_tasks", lambda max_results=20: []
         )
 
         raw = make_llm([AIMessage(content="Δεν είδα το ημερολόγιο.")])

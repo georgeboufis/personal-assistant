@@ -30,14 +30,21 @@ class TestToolRegistration:
     def test_όλα_τα_εργαλεία_καταχωρημένα(self):
         names = {t.name for t in TOOLS}
         assert names == {
+            # Calendar
             "list_upcoming_events",
             "create_calendar_event",
+            # Gmail
             "list_recent_emails",
             "search_emails",
             "read_email",
             "create_email_draft",
             "create_reply_draft",
             "send_email",
+            # Tasks
+            "list_tasks",
+            "create_task",
+            "complete_task",
+            "delete_task",
         }
 
     def test_αντιστοίχιση_ονόματος_με_function(self):
@@ -65,10 +72,23 @@ class TestConfirmationRules:
             "create_email_draft",
             "create_reply_draft",
             "send_email",
+            "create_task",
+            "complete_task",
+            "delete_task",
         }
 
+    def test_κάθε_write_εργαλείο_είναι_καταχωρημένο(self):
+        """
+        Δικλείδα ασφαλείας: αν κάποιος γράψει λάθος όνομα στο
+        CONFIRMATION_REQUIRED_TOOLS, ο κανόνας δεν θα ισχύσει ποτέ και το
+        εργαλείο θα εκτελείται σιωπηλά χωρίς έγκριση.
+        """
+        assert CONFIRMATION_REQUIRED_TOOLS.issubset({t.name for t in TOOLS})
+
     @pytest.mark.parametrize(
-        "name", ["list_upcoming_events", "list_recent_emails", "search_emails", "read_email"]
+        "name",
+        ["list_upcoming_events", "list_recent_emails", "search_emails",
+         "read_email", "list_tasks"],
     )
     def test_τα_read_εργαλεία_δεν_απαιτούν(self, name):
         assert needs_confirmation([{"name": name}]) is False
@@ -127,6 +147,27 @@ class TestDescribeToolCall:
     def test_άγνωστο_εργαλείο_δεν_σκάει(self):
         desc = describe_tool_call({"name": "κάτι_νέο", "args": {"x": 1}})
         assert "κάτι_νέο" in desc
+
+    def test_νέα_εργασία_δείχνει_προθεσμία(self):
+        desc = describe_tool_call(
+            tool_call("create_task", {"title": "Αποστολή CV", "due_date": "2026-09-05"})
+        )
+        assert "Αποστολή CV" in desc
+        assert "2026-09-05" in desc
+
+    def test_διαγραφή_εργασίας_προειδοποιεί(self):
+        desc = describe_tool_call(tool_call("delete_task", {"task_id": "t1"}))
+        assert "δεν αναιρείται" in desc
+
+    def test_κάθε_εργαλείο_έγκρισης_έχει_δική_του_περιγραφή(self):
+        """
+        Αν προστεθεί write εργαλείο χωρίς περιγραφή, ο χρήστης θα δει ένα
+        ακατάληπτο dump ορισμάτων στην κάρτα έγκρισης.
+        """
+        generic = "με ορίσματα:"
+        for name in CONFIRMATION_REQUIRED_TOOLS:
+            desc = describe_tool_call({"name": name, "args": {}})
+            assert generic not in desc, f"λείπει περιγραφή για το {name}"
 
 
 # ===========================================================================

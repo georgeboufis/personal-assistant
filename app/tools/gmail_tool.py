@@ -28,7 +28,7 @@ from email.message import EmailMessage
 from googleapiclient.discovery import build
 from langchain_core.tools import tool
 
-from app.core.google_auth import get_google_credentials
+from app.core import google_auth
 
 # Πόσους χαρακτήρες του σώματος κάθε email να επιστρέφουμε στον agent.
 # Γιατί περιορίζουμε: ένα μεγάλο email (π.χ. newsletter με HTML) μπορεί
@@ -45,7 +45,7 @@ MAX_FULL_BODY_CHARS = 6000
 
 def _get_gmail_service():
     """Χτίζει ένα Gmail API service object, έτοιμο για χρήση."""
-    creds = get_google_credentials()
+    creds = google_auth.get_google_credentials()
     return build("gmail", "v1", credentials=creds)
 
 

@@ -23,6 +23,9 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config import get_settings
 from app.core.briefing import USER_TIMEZONE, run_scheduled_briefing
+from app.core.logging_config import get_logger
+
+log = get_logger("scheduler")
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -38,7 +41,7 @@ def start_scheduler() -> None:
     settings = get_settings()
 
     if not settings.briefing_enabled:
-        print("[scheduler] Η πρωινή ενημέρωση είναι απενεργοποιημένη.")
+        log.info("η πρωινή ενημέρωση είναι απενεργοποιημένη")
         return
 
     if _scheduler is not None:
@@ -68,10 +71,10 @@ def start_scheduler() -> None:
     )
 
     _scheduler.start()
-    print(
-        f"[scheduler] Πρωινή ενημέρωση προγραμματίστηκε για "
-        f"{settings.briefing_hour:02d}:{settings.briefing_minute:02d} "
-        f"(ώρα Ελλάδας)."
+    log.info(
+        "πρωινή ενημέρωση προγραμματίστηκε για %02d:%02d (ώρα Ελλάδας)",
+        settings.briefing_hour,
+        settings.briefing_minute,
     )
 
 
@@ -81,3 +84,4 @@ def stop_scheduler() -> None:
     if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
+        log.info("ο scheduler σταμάτησε")

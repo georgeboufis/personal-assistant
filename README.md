@@ -1,9 +1,10 @@
 # Personal AI Assistant
 
-An LLM agent that manages my Google Calendar and Gmail through natural
-language. It reads my schedule, drafts replies that match the tone of the
-original email, creates calendar events from appointment details buried in
-messages, and emails me a briefing every morning at 08:30.
+An LLM agent that manages my Google Calendar, Gmail and Tasks through
+natural language. It reads my schedule, drafts replies that match the tone
+of the original email, turns appointment details and deadlines buried in
+messages into calendar events or to-dos, and emails me a briefing every
+morning at 08:30.
 
 Built on a free tier — no paid API keys.
 
@@ -37,10 +38,11 @@ the safety layer after a refactor.
 | LLM | Gemini 3.6 Flash | Genuine free tier with tool calling. Swapping providers means editing one file (`llm_client.py`) |
 | API | FastAPI | Async, typed, generates its own docs |
 | Memory | Redis | Conversation history per session, 24h TTL |
-| Integrations | Google Calendar + Gmail APIs | OAuth 2.0, minimum necessary scopes |
+| Integrations | Google Calendar, Gmail, Tasks APIs | OAuth 2.0, minimum necessary scopes |
 | Scheduling | APScheduler | Background thread, so blocking calls don't stall the server |
+| Logging | stdlib `logging` | Rotating file handler, metadata only by default |
 | Frontend | Single HTML file | No build step, no `node_modules`, no second server |
-| Tests | pytest | 184 tests, 93% coverage, runs in 2 seconds |
+| Tests | pytest | 234 tests, 94% coverage, runs in 3 seconds |
 
 Deliberately no Docker, no Postgres, no separate frontend framework. This
 runs on a MacBook Air with 8 GB of RAM alongside another project.
@@ -88,12 +90,14 @@ app/
     confirmation.py       Pending-action detection, yes/no interpretation
     briefing.py           Morning briefing pipeline
     scheduler.py          APScheduler setup
+    logging_config.py     Rotating file logs, privacy-aware formatting
     google_auth.py        OAuth flow and token refresh
   tools/
     calendar_tool.py      2 agent tools + helpers for the briefing
     gmail_tool.py         6 agent tools + helpers for the briefing
+    tasks_tool.py         4 agent tools + helpers for the briefing
   static/index.html       Chat UI
-tests/                    184 tests
+tests/                    234 tests
 ```
 
 ---
@@ -106,14 +110,26 @@ tests/                    184 tests
 | `list_recent_emails` | no |
 | `search_emails` | no |
 | `read_email` | no |
+| `list_tasks` | no |
 | `create_calendar_event` | **yes** |
 | `create_email_draft` | **yes** |
 | `create_reply_draft` | **yes** |
 | `send_email` | **yes** |
+| `create_task` | **yes** |
+| `complete_task` | **yes** |
+| `delete_task` | **yes** |
 
 The rule is mechanical: anything that writes to the outside world needs
 explicit approval. Adding a tool means adding it to `TOOLS` and, if it
 writes, to `CONFIRMATION_REQUIRED_TOOLS`.
+
+**Calendar or task?** The agent distinguishes them: a calendar event is
+something that happens at a specific time and blocks it out ("interview
+Wednesday at 12"); a task is something that needs doing, possibly by a
+deadline, but occupies no fixed slot ("send the CV by Friday"). The
+distinction matters because Google Tasks stores dates only — the time
+component of a due date is silently discarded by the API, so anything
+time-sensitive belongs on the calendar.
 
 ---
 
@@ -152,11 +168,43 @@ case is a strangely worded summary, not an action.
 automatically without approval.
 
 Other measures: minimum OAuth scopes (`calendar.events`, `gmail.readonly`,
-`gmail.compose` — not `gmail.modify`, not full mail access); HTML escaping
+`gmail.compose`, `tasks` — not `gmail.modify`, not full mail access); HTML escaping
 before markdown rendering in the UI; secrets in `.env`, gitignored
 alongside `credentials.json` and `token.json`.
 
 ---
+
+## Logging
+
+Everything goes to `logs/assistant.log` with rotation (2 MB per file, three
+kept, so it can never fill the disk). The reason this exists is the 08:30
+briefing: it runs unattended, and without a log a failure there is
+completely invisible — you just notice one morning that nothing arrived.
+
+The second reason is subtler. Tool failures are caught and turned into
+polite replies so the user sees an explanation rather than a stack trace.
+That is good UX and terrible observability: a tool could be failing
+constantly and you would never know. Every swallowed exception is now
+logged at ERROR with a full traceback.
+
+```
+2026-09-01 20:21:36 INFO  assistant.api    μήνυμα | session=demo | <19 χαρακτήρες>
+2026-09-01 20:21:36 INFO  assistant.agent  list_upcoming_events ok (0.31s, 412 χαρακτήρες)
+2026-09-01 20:21:36 WARN  assistant.agent  σε αναμονή έγκρισης: send_email
+2026-09-01 20:21:41 WARN  assistant.api    ΕΓΚΡΙΘΗΚΕ | session=demo | send_email
+2026-09-02 08:30:03 ERROR assistant.briefing  αποτυχία αποστολής: 429 quota exceeded
+```
+
+**Privacy.** The agent reads my email. Logging content would create an
+unencrypted, ever-growing file on disk containing copies of my
+correspondence — easy to forget it exists. So the log records metadata
+(which tool, how long, how many characters, which session) and never
+content. `LOG_CONTENT=true` enables verbose logging for debugging; it is
+off by default and should stay that way.
+
+Approvals are logged at WARNING rather than INFO. They are the points where
+a human took responsibility for an irreversible action, and they should
+stand out when scanning a log.
 
 ## Setup
 
@@ -183,8 +231,9 @@ cp .env.example .env
 **Google OAuth** — in the [Cloud Console](https://console.cloud.google.com/):
 
 1. Create a project
-2. Enable **Google Calendar API** *and* **Gmail API** (separately — missing
-   the second one produces a 403 that took me a while to trace)
+2. Enable **Google Calendar API**, **Gmail API** and **Google Tasks API**
+   — each one separately. Missing one produces a 403 at the point of first
+   use, not at startup, which makes it easy to misdiagnose.
 3. OAuth consent screen → External → add your own address under *Test users*
 4. Credentials → OAuth client ID → **Desktop app** → download JSON
 5. Save it as `credentials.json` in the project root
@@ -231,14 +280,14 @@ restarts constantly.
 ## Tests
 
 ```bash
-pytest                                    # 184 tests, ~2s
+pytest                                    # 234 tests, ~3s
 pytest --cov=app --cov-report=term-missing
 ```
 
 See [`tests/README.md`](tests/README.md) for structure and the four tests
 that must never break.
 
-Coverage is 93%. The gaps are the OAuth browser flow and the live Redis
+Coverage is 94%. The gaps are the OAuth browser flow and the live Redis
 connection — both of which are what the tests deliberately replace.
 
 I verified the suite actually catches regressions by breaking the code on
@@ -278,13 +327,21 @@ path. Delete and recreate rather than trying to patch it.
 
 **`from module import function` breaks patching.** Bound at import time, so
 `monkeypatch` on the source module has no effect if the importing module
-loaded first. Two tests passed for weeks without testing anything. The
-codebase now uses `import module` + `module.function()` throughout.
+loaded first. This bit me three times. The last instance was the worst: a
+briefing test mocked Calendar and Gmail but not Tasks, so it fell through
+to the real OAuth flow. On my machine there is no `credentials.json`, so it
+failed instantly and the test passed. On a machine that *has* credentials,
+the same test opened a browser and authenticated against a real account —
+the suite went from 4 seconds to 19. The test suite now installs an autouse
+fixture that replaces `get_google_credentials` with something that raises,
+so a missing mock fails loudly instead of leaking to the network. That guard
+derives from `BaseException` rather than `Exception`, because the
+application deliberately catches `Exception` around tool calls and would
+otherwise swallow the warning.
 
 ---
 
 ## Possible extensions
 
-Google Tasks (same OAuth, no new scopes). Deleting and rescheduling events.
-Free-slot search across a date range. Structured logging. An MCP server
-exposing these tools to other clients.
+Deleting and rescheduling calendar events. Free-slot search across a date
+range. An MCP server exposing these tools to other clients.

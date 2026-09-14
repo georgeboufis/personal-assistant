@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.core.redis_client import check_redis_connection
 from app.core.memory import load_history, save_history
 from app.core.briefing import generate_briefing, get_or_create_todays_briefing
+from app.core.logging_config import get_logger, safe, setup_logging
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.core.confirmation import (
     build_decline_messages,
@@ -40,6 +41,8 @@ from app.agents.graph import describe_tool_call, execute_tool_calls, get_agent
 # ποιος είναι ο τρέχων φάκελος όταν ξεκινάει ο server.
 STATIC_DIR = Path(__file__).parent / "static"
 
+log = get_logger("api")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,9 +52,14 @@ async def lifespan(app: FastAPI):
     Εδώ ξεκινάμε τον scheduler (πρωινή ενημέρωση) και τον σταματάμε καθαρά
     όταν κλείνει ο server - αλλιώς θα έμενε "ζόμπι" thread στη μνήμη.
     """
+    # Το logging πρώτο, ώστε ό,τι κάνει ο scheduler στην εκκίνηση να
+    # καταγραφεί κανονικά.
+    setup_logging()
+    log.info("ο βοηθός ξεκίνησε")
     start_scheduler()
     yield
     stop_scheduler()
+    log.info("ο βοηθός σταμάτησε")
 
 app = FastAPI(
     title="AI Personal Assistant",
@@ -220,18 +228,26 @@ def chat(request: ChatRequest) -> dict:
 
     # --- Α) Καμία εκκρεμότητα: κανονική ροή ---
     if not pending:
+        log.info(
+            "μήνυμα | session=%s | %s",
+            request.session_id,
+            safe(request.message),
+        )
         history.append(HumanMessage(content=request.message))
         return _run_agent_and_respond(history, request.session_id)
 
     answer = interpret_answer(request.message, request.confirm)
+    names = ", ".join(tc["name"] for tc in pending)
 
     # --- Β1) Ο χρήστης ενέκρινε ---
     if answer is True:
+        log.warning("ΕΓΚΡΙΘΗΚΕ | session=%s | %s", request.session_id, names)
         history.extend(execute_tool_calls(pending))
         return _run_agent_and_respond(history, request.session_id)
 
     # --- Β2) Ο χρήστης αρνήθηκε ---
     if answer is False:
+        log.info("απορρίφθηκε | session=%s | %s", request.session_id, names)
         history.extend(
             build_decline_messages(
                 pending,
@@ -242,6 +258,11 @@ def chat(request: ChatRequest) -> dict:
         return _run_agent_and_respond(history, request.session_id)
 
     # --- Γ) Ασαφής απάντηση: ακύρωσε και συνέχισε με το νέο μήνυμα ---
+    log.info(
+        "ακυρώθηκε (αλλαγή θέματος) | session=%s | %s",
+        request.session_id,
+        names,
+    )
     history.extend(
         build_decline_messages(
             pending,

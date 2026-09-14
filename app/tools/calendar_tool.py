@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 from googleapiclient.discovery import build
 from langchain_core.tools import tool
 
-from app.core.google_auth import get_google_credentials
+from app.core import google_auth
 
 # Ζώνη ώρας χρήστη - χρησιμοποιείται ώστε το Google Calendar να
 # επιστρέφει/δέχεται ώρες στη σωστή τοπική ώρα. Ονομασία IANA (όχι
@@ -40,7 +40,7 @@ USER_TIMEZONE = ZoneInfo(USER_TIMEZONE_NAME)
 
 def _get_calendar_service():
     """Χτίζει ένα Google Calendar API service object, έτοιμο για χρήση."""
-    creds = get_google_credentials()
+    creds = google_auth.get_google_credentials()
     return build("calendar", "v3", credentials=creds)
 
 
