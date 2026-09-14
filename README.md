@@ -1,3 +1,5 @@
+[![tests](https://github.com/georgeboufis/personal-assistant/actions/workflows/tests.yml/badge.svg)](https://github.com/georgeboufis/personal-assistant/actions/workflows/tests.yml)
+
 # Personal AI Assistant
 
 An LLM agent that manages my Google Calendar, Gmail and Tasks through
