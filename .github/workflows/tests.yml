@@ -1,0 +1,38 @@
+name : tests
+
+# Πότε τρέχει: σε κάθε push στο main, και σε κάθε pull request.
+# Το δεύτερο έχει σημασία όταν δουλεύεις σε branch, βλέπεις αν κάτι έσπασε πριν το ενώσεις με το main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+       # Κατεβάζει τον κώδικα του repository στη μηχανή του CI.
+       - uses: actions/checkout@v4
+
+       - name: Setup Python
+         uses: actions/setup-python@v5
+         with:
+            python-version: "3.12"
+            # Το cache κρατάει τα κατεβασμένα πακέτα ανάμεσα σε runs.
+            # Χωρίς αυτό, κάθε run θα ξανακατέβαζε dependencies.
+            cache: pip
+       - name: Install dependencies
+         run: |
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+
+       - name: Lint
+         run: python -m pyflakes app tests
+      
+       - name: tests
+         run: python -m pytest --cov=app --cov-report=term-missing
+        
+         
