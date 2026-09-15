@@ -302,7 +302,34 @@ class TestBriefing:
         assert data["briefing"] == "δεύτερη"
 
 
-# ===========================================================================
+class TestDashboard:
+    def test_επιστρέφει_events_και_tasks(self, client, fake_calendar, fake_gmail, fake_tasks):
+        fake_calendar.events.return_value.list.return_value.execute.return_value = {
+            "items": [{"summary": "Ιδιαίτερα AI", "start": {"dateTime": "2026-09-01T15:00:00Z"}}]
+        }
+        fake_tasks.tasks.return_value.list.return_value.execute.return_value = {
+            "items": [{"id": "t1", "title": "Αποστολή CV", "due": "2026-09-05T00:00:00:000Z"}]
+        }
+
+        response = client.get("/dashboard")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "Ιδιαίτερα AI" in data["events"][0]
+        assert "Αποστολή CV" in data["tasks"][0]
+    
+    def test_δεν_περνάει_από_το_llm(self, client, fake_calendar, fake_tasks):
+        response = client.get("/dashboard")
+        assert response.status_code == 200
+    
+    def test_σφάλμα_calendar_δεν_ρίχνει_το_dashboard(self, client, fake_tasks, monkeypatch):
+        monkeypatch.setattr(
+            "app.tools.calendar_tool.get_events_for_day",
+            lambda day: (_ for _ in ()).throw(RuntimeError("API down")),
+        )
+        response = client.get("/dashboard")
+        assert response.status_code == 200 
+        assert response.json()["events"] == []
 # Ανθεκτικότητα
 # ===========================================================================
 

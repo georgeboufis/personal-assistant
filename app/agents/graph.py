@@ -17,7 +17,7 @@ graph.py
 διαμορφώσει την τελική απάντηση (ή να καλέσει κι άλλο εργαλείο αν
 χρειαστεί - γι' αυτό είναι loop, όχι ευθεία γραμμή).
 """
-
+import re 
 import time
 from datetime import datetime
 from functools import lru_cache
@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from app.agents.state import AgentState
 from app.core import llm_client
@@ -342,6 +343,74 @@ def _get_llm_with_tools():
     llm = llm_client.get_llm()
     return llm.bind_tools(TOOLS)
 
+def describe_llm_error(exc: Exception) -> str:
+    """
+    Μετατρέπει ένα σφάλμα του μοντέλου σε μήνυμα κατανοητό από άνθρωπο.
+
+    Γιατί ξεχωρίζουμε το quota: είναι μακράν το πιο συχνό σφάλμα στο
+    δωρεάν tier, και η αντιμετώπιση είναι διαφορετική από τα υπόλοιπα -
+    δεν φταίει κάτι, απλά πρέπει να περιμένεις.
+    """
+    text = str(exc)
+
+    if "RESOURCE_EXHAUSTED" in text or "429" in text:
+        match = re.search(r"retry in ([\d.]+)s", text)
+        wait = f"Δοκιμασε ξανα σε {float(match.group(1)): .0f} δευτερολεπτα." if match else ""
+        return (
+         "Εξαντλήθηκε το όριο κλήσεων του δωρεάν tier του Gemini."
+            f"{wait}\n\n"
+            "Το δωρεάν πακέτο έχει όριο ανά λεπτό και ανά ημέρα. Αν το "
+            "χτυπάς συχνά, μπορείς να αλλάξεις μοντέλο στο .env "
+            "(GEMINI_MODEL) σε κάποιο ελαφρύτερο, ή να περιορίσεις τις "
+            "δοκιμές."
+        )
+    
+    if "SAFETY" in text or "blocked" in text.lower():
+        return (
+            "Το μοντέλο απέρριψε το αίτημα για λόγους περιεχομένου."
+            "Δοκίμασε να το διατυπώσεις διαφορετικά."
+        )
+    
+    return (
+        "Παρουσιάστηκε σφάλμα κατά την επικοινωνία με το μοντέλο. "
+        "Οι λεπτομέρειες έχουν καταγραφεί στο logs/assistant.log."
+    )
+
+
+def _describe_llm_error(exc: Exception) -> str:
+    """
+    Μετατρέπει ένα σφάλμα του μοντέλου σε μήνυμα κατανοητό από άνθρωπο.
+
+    Γιατί ξεχωρίζουμε το quota: είναι μακράν το πιο συχνό σφάλμα στο
+    δωρεάν tier, και η αντιμετώπιση είναι διαφορετική από τα υπόλοιπα -
+    δεν φταίει κάτι, απλά πρέπει να περιμένεις.
+    """
+
+    text = str(exc)
+
+    if "RESOURCE_EXHAUSTED" in text or "429" in text:
+        match = re.search(r"retry in ([\d.]+)s", text)
+        wait = f"Δοκίμασε ξανά σε {float(match.group(1)):.0f} δευτερόλεπτα." if match else ""
+
+        return (
+         "Εξαντλήθηκε το όριο κλήσεων του δωρεάν tier του Gemini."
+            f"{wait}\n\n"
+            "Το δωρεάν πακέτο έχει όριο ανά λεπτό και ανά ημέρα. Αν το "
+            "χτυπάς συχνά, μπορείς να αλλάξεις μοντέλο στο .env "
+            "(GEMINI_MODEL) σε κάποιο ελαφρύτερο, ή να περιορίσεις τις "
+            "δοκιμές."
+        )
+    
+    if "SAFETY" in text or "blocked" in text.lower():
+        return (
+            "Το μοντέλο απέρριψε το αίτημα για λόγους περιεχομένου."
+            "Δοκίμασε να το διατυπώσεις διαφορετικά."
+        )
+    
+    return (
+        "Παρουσιάστηκε σφάλμα κατά την επικοινωνία με το μοντέλο."
+        "Οι λεπτομέρειες έχουν καταγραφεί στο logs/assistant.log."
+    )
 
 def chat_node(state: AgentState) -> dict:
     """
@@ -360,7 +429,11 @@ def chat_node(state: AgentState) -> dict:
     """
     llm = _get_llm_with_tools()
     messages = [SystemMessage(content=_build_system_prompt())] + state["messages"]
-    response = llm.invoke(messages)
+    try:
+        response = llm.invoke(messages)
+    except Exception as exc:
+        log.error("η κλήση στο μοντέλο απέτυχε: %s", exc, exc_info=True)
+        response = AIMessage(content=_describe_llm_error(exc))
     return {"messages": [response]}
 
 

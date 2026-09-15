@@ -34,6 +34,10 @@ from app.core.confirmation import (
     interpret_answer,
 )
 from app.agents.graph import describe_tool_call, execute_tool_calls, get_agent
+from app.tools import calendar_tool, tasks_tool 
+from app.core.briefing import USER_TIMEZONE
+
+from datetime import datetime 
 
 # Πού βρίσκεται ο φάκελος με τα στατικά αρχεία του UI.
 # Το χτίζουμε ΣΧΕΤΙΚΑ με τη θέση αυτού του αρχείου (__file__) αντί να
@@ -108,6 +112,37 @@ def get_briefing(refresh: bool = False) -> dict:
     text = generate_briefing() if refresh else get_or_create_todays_briefing()
     return {"briefing": text}
 
+@app.get("/dashboard")
+def get_dashboard() -> dict:
+    """
+    Γρήγορη σύνοψη της σημερινής ημέρας, για το sidebar του UI:
+    τα ραντεβού και οι εκκρεμείς εργασίες.
+
+    Δεν περνάει από το Gemini - χρησιμοποιεί τις ΙΔΙΕΣ helper functions
+    με την πρωινή ενημέρωση (calendar_tool.get_events_for_day,
+    tasks_tool.get_pending_tasks), που κάνουν απευθείας ανάγνωση από τα
+    Google APIs. Γι' αυτό είναι ασφαλές να το καλεί το UI ελεύθερα,
+    ακόμα και σε κάθε refresh - μηδενικό κόστος σε quota, καμία ενέργεια.
+    """
+    now = datetime.now(USER_TIMEZONE)
+    
+    try: 
+        events = calendar_tool.get_events_for_day(now)
+    except Exception as exc:
+        log.error("Αποτυχία ανάγνωσης ημερολογίου για dashboard: %s", exc, exc_info=True)
+        events = []
+    
+    try:
+        tasks = tasks_tool.get_pending_tasks(max_results=10)
+    except Exception as exc:
+        log.error("Αποτυχία ανάγνωσης εκκρεμών εργασιών για dashboard: %s", exc, exc_info=True)
+        tasks = []
+    
+    return {
+        "date": now.strftime("%Y-%m-%d"),
+        "events": events,
+        "tasks": tasks,
+    }
 
 @app.get("/")
 def serve_ui() -> FileResponse:

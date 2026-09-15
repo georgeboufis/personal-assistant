@@ -347,3 +347,53 @@ class TestAgentFlow:
 
         # ...αλλά ΔΕΝ αποθηκεύτηκε
         assert not any(isinstance(m, SystemMessage) for m in result["messages"])
+
+
+class TestLLMErrorHandling:
+    """
+    Είχαμε φροντίσει τα σφάλματα των εργαλείων, αλλά όχι της κλήσης προς το
+    ίδιο το μοντέλο. Μια εξάντληση quota (πολύ συχνή στο δωρεάν tier)
+    έριχνε ολόκληρο το request με HTTP 500.
+    """
+
+    def test_σφάλμα_μοντέλου_δεν_ρίχνει_το_graph(self, make_llm):
+        raw = make_llm([])
+        raw.bind_tools.return_value.invoke.side_effect = RuntimeError("boom")
+
+        result = get_agent().invoke({"messages": [HumanMessage(content="Γεια")]})
+
+        assert len(result["messages"]) == 2
+        assert isinstance(result["messages"][-1], AIMessage)
+        assert result["messages"][-1].content
+
+    def test_quota_δίνει_κατανοητό_μήνυμα(self, make_llm):
+        raw = make_llm([])
+        raw.bind_tools.return_value.invoke.side_effect = RuntimeError(
+            "429 RESOURCE_EXHAUSTED. Please retry in 57.75s."
+        )
+
+        result = get_agent().invoke({"messages": [HumanMessage(content="Γεια")]})
+        text = result["messages"][-1].content
+
+        assert "όριο κλήσεων" in text
+        assert "58 δευτερόλεπτα" in text
+
+    def test_safety_block(self, make_llm):
+        raw = make_llm([])
+        raw.bind_tools.return_value.invoke.side_effect = RuntimeError(
+            "Response blocked by SAFETY filter"
+        )
+
+        result = get_agent().invoke({"messages": [HumanMessage(content="x")]})
+        assert "λόγους περιεχομένου" in result["messages"][-1].content
+
+    def test_το_σφάλμα_καταγράφεται(self, make_llm, caplog):
+        import logging
+
+        raw = make_llm([])
+        raw.bind_tools.return_value.invoke.side_effect = RuntimeError("429 quota")
+
+        with caplog.at_level(logging.ERROR, logger="assistant.agent"):
+            get_agent().invoke({"messages": [HumanMessage(content="x")]})
+
+        assert "η κλήση στο μοντέλο απέτυχε" in caplog.text
