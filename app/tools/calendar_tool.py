@@ -121,6 +121,106 @@ RECURRENCE_RULES = {
 }
 
 
+def _get_busy_intervals(day: datetime) -> list[tuple[datetime, datetime]]:
+    """
+    Επιστρέφει τα χρονικά διαστήματα (έναρξη, λήξη) που είναι ΗΔΗ
+    κατειλημμένα από events μιας ημέρας, σε τοπική ώρα.
+
+    ΔΕΝ είναι @tool - το χρησιμοποιεί εσωτερικά το find_free_time.
+    Αγνοεί ολοήμερα events, αφού δεν έχουν συγκεκριμένη ώρα και δεν
+    μπλοκάρουν κάποιο συγκεκριμένο χρονικό παράθυρο.
+    """
+    service = _get_calendar_service()
+
+    day_start = day.astimezone(USER_TIMEZONE).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    day_end = day_start + timedelta(days=1)
+
+    result = (
+        service.events()
+        .list(
+            calendarId="primary",
+            timeMin=day_start.isoformat(),
+            timeMax=day_end.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+        )
+        .execute()
+    )
+
+    intervals = []
+    for event in result.get("items", []):
+        start_raw = event["start"].get("dateTime")
+        end_raw = event["end"].get("dateTime")
+        if not start_raw or not end_raw:
+            continue
+        intervals.append(
+            (
+                datetime.fromisoformat(start_raw).astimezone(USER_TIMEZONE),
+                datetime.fromisoformat(end_raw).astimezone(USER_TIMEZONE),
+            )
+        )
+    return intervals 
+
+@tool
+def find_free_time(
+    date: str,
+    duration_minutes: int = 60,
+    earliest_hour: int = 9,
+    latest_hour: int = 21,
+) -> str:
+    """
+    Βρίσκει ελεύθερα χρονικά διαστήματα σε μια συγκεκριμένη ημέρα.
+
+    Χρησιμοποίησε αυτό όταν ο χρήστης ρωτάει πότε είναι ελεύθερος, ή πριν
+    προτείνεις ώρα για νέο ραντεβού - ώστε να μην προτείνεις κάτι που
+    συγκρούεται με υπάρχον event.
+
+    Args:
+        date: η ημερομηνία σε μορφή YYYY-MM-DD.
+        duration_minutes: πόσα λεπτά χρειάζεται το ελεύθερο διάστημα
+            (προεπιλογή 60).
+        earliest_hour: από ποια ώρα να ψάξει, 24ωρη μορφή (προεπιλογή 9).
+        latest_hour: μέχρι ποια ώρα να ψάξει, 24ωρη μορφή (προεπιλογή 21).
+    """
+    try:
+        day = datetime.strptime(date.strip()[:10], "%Y-%m-%d").replace(
+            tzinfo=USER_TIMEZONE
+        )
+    except ValueError:
+        return f"Η ημερομηνία '{date}' δεν είναι έγκυρη. Χρησιμοποίησε μορφή YYYY-MM-DD."
+    
+    busy = _get_busy_intervals(day)
+    duration = timedelta(minutes=duration_minutes)
+    
+    window_start = day.replace(hour=earliest_hour, minute=0)
+    window_end = day.replace(hour=latest_hour, minute=0)
+
+    free_slots = []
+    cursor = window_start
+    for busy_start, busy_end in busy:
+        if busy_start > cursor and busy_start - cursor >= duration:
+            free_slots.append((cursor, busy_start))
+        cursor = max(cursor, busy_end)
+    if window_end - cursor >= duration:
+        free_slots.append((cursor, window_end))
+    
+    if not free_slots:
+        return (
+            f"Δεν βρέθηκε ελεύθερο διάστημα {duration_minutes} λεπτών στις "
+            f"{date} μεταξύ {earliest_hour}:00-{latest_hour}:00."
+        )
+    
+    lines = [f"Ελεύθερα διαστήματα στις {date} (τουλάχιστον {duration_minutes} λεπτά):"]
+    for slot_start, slot_end in free_slots:
+        lines.append(f"- {slot_start.strftime('%H:%M')} έως {slot_end.strftime('%H:%M')}")
+    
+    return "\n".join(lines)
+
+
+
+
 @tool
 def list_upcoming_events(max_results: int = 10) -> str:
     """
@@ -161,7 +261,7 @@ def list_upcoming_events(max_results: int = 10) -> str:
     for event in events:
         start = _format_event_start(event)
         title = event.get("summary", "(χωρίς τίτλο)")
-        lines.append(f"- {start}: {title}")
+        lines.append(f"- ID: {event.get('id', '')}\n  {start}: {title}")
 
     return "\n".join(lines)
 
@@ -224,3 +324,63 @@ def create_calendar_event(
         message += f", επαναλαμβανόμενο ({repeat})"
     message += f". Σύνδεσμος¨{created_event.get('htmlLink', '(χωρίς link)')}"
     return message
+
+@tool
+def delete_calendar_event(event_id: str) -> str:
+    """
+    Διαγράφει ΟΡΙΣΤΙΚΑ ένα event από το ημερολόγιο του χρήστη. Η ενέργεια
+    ΔΕΝ αναιρείται.
+
+    Χρησιμοποίησε αυτό ΜΟΝΟ όταν ο χρήστης ζητήσει ρητά να διαγράψεις ή
+    να ακυρώσεις ένα συγκεκριμένο event. Το event_id το παίρνεις ΠΑΝΤΑ
+    από τα αποτελέσματα του list_upcoming_events (εμφανίζεται ως "ID:")
+    - ποτέ μην το μαντεύεις.
+
+    Args:
+        event_id: το αναγνωριστικό του event.
+    """
+    service = _get_calendar_service()
+    service.events().delete(calendarId="primary", eventId=event_id).execute()
+    return f"Το event {event_id} διαγράφηκε οριστικά από το ημερολόγιο."
+
+
+@tool
+def update_calendar_event(
+    event_id: str,
+    start_time: str = "",
+    end_time: str = "",
+    summary: str = "",
+) -> str:
+    """
+    Τροποποιεί ΥΠΑΡΧΟΝ event - αλλάζει ώρα (μετακίνηση) ή/και τίτλο. Άφησε
+    κενό ό,τι ΔΕΝ θέλεις να αλλάξεις.
+
+    Χρησιμοποίησε αυτό όταν ο χρήστης θέλει να μετακινήσει ή να
+    μετονομάσει ένα event που ήδη υπάρχει. Το event_id το παίρνεις ΠΑΝΤΑ
+    από το list_upcoming_events - ποτέ μην το μαντεύεις.
+
+    Args:
+        event_id: το αναγνωριστικό του event προς τροποποίηση.
+        start_time: νέα ώρα έναρξης σε ISO 8601 με timezone, ή κενό.
+        end_time: νέα ώρα λήξης, ίδιο format, ή κενό.
+        summary: νέος τίτλος, ή κενό.
+    """
+    service = _get_calendar_service()
+
+    body = {}
+    if summary:
+        body["summary"] = summary
+    if start_time:
+        body["start"] = {"dateTime": start_time, "timeZone": USER_TIMEZONE_NAME}
+    if end_time:
+        body["end"] = {"dateTime": end_time, "timeZone": USER_TIMEZONE_NAME}
+
+    if not body:
+        return "Δεν δόθηκε καμία αλλαγή - πες μου τι θέλεις να τροποποιήσω."
+
+    updated = (
+        service.events()
+        .patch(calendarId="primary", eventId=event_id, body=body)
+        .execute()
+    )
+    return f"Το event '{updated.get('summary', event_id)}' ενημερώθηκε επιτυχώς."

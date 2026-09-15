@@ -30,7 +30,13 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from app.agents.state import AgentState
 from app.core import llm_client
 from app.core.logging_config import get_logger
-from app.tools.calendar_tool import list_upcoming_events, create_calendar_event
+from app.tools.calendar_tool import (
+    create_calendar_event,
+    delete_calendar_event,
+    find_free_time,
+    list_upcoming_events,
+    update_calendar_event,
+)
 from app.tools.gmail_tool import (
     create_email_draft,
     create_reply_draft,
@@ -62,7 +68,10 @@ USER_TIMEZONE = ZoneInfo("Europe/Athens")
 TOOLS = [
     # Calendar
     list_upcoming_events,
+    find_free_time,
     create_calendar_event,
+    delete_calendar_event,
+    update_calendar_event,
     # Gmail
     list_recent_emails,
     search_emails,
@@ -109,6 +118,8 @@ CONFIRMATION_REQUIRED_TOOLS = {
     "create_task",
     "complete_task",
     "delete_task",
+    "delete_calendar_event",
+    "update_calendar_event"
 }
 
 
@@ -163,6 +174,22 @@ def describe_tool_call(tool_call: dict) -> str:
         if args.get("repeat"):
             line += f"\n  🔁 Επανάληψη: κάθε {args['repeat']}"
         return line 
+    
+    if name == "delete_calendar_event":
+        return (
+            f"🗑️ ΟΡΙΣΤΙΚΗ ΔΙΑΓΡΑΦΗ event (δεν αναιρείται)\n"
+            f"   ID: {args.get('event_id', '?')}"
+        )
+    
+    if name == "update_calendar_event":
+        parts = [f"✏️ Τροποποίηση event\n   ID: {args.get('event_id', '?')}"]
+        if args.get("summary"):
+            parts.append(f"Νέος τίτλος: {args['summary']}")
+        if args.get("start_time"):
+            parts.append(f"  Νέα ώρα έναρξης: {args['start_time']}")
+        if args.get("end_time"):
+            parts.append(f" Νέα ώρα λήξης: {args['end_time']}")
+        return "\n".join(parts)
 
     if name == "create_task":
         due = args.get("due_date")
@@ -273,6 +300,11 @@ def _build_system_prompt() -> str:
         "- Όταν δημιουργείς event, δώσε ΠΑΝΤΑ τις ώρες σε ISO 8601 με το "
         "σωστό offset της ζώνης ώρας του χρήστη.\n"
         "- Αν ο χρήστης δεν διευκρινίσει διάρκεια, υπέθεσε 1 ώρα.\n"
+        "- Χρησιμοποίησε το find_free_time όταν ο χρήστης ρωτάει πότε "
+        "είναι ελεύθερος, ή πριν προτείνεις ώρα για νέο ραντεβού.\n"
+        "- Για διαγραφή ή μετακίνηση ΥΠΑΡΧΟΝΤΟΣ event, κάλεσε ΠΡΩΤΑ το "
+        "list_upcoming_events για να βρεις το σωστό event_id - μην το "
+        "μαντεύεις ΠΟΤΕ.\n"
         "- Αν ο χρήστης ζητήσει κάτι να επαναλαμβάνεται (π.χ. 'κάθε "
         "Τετάρτη', 'κάθε μέρα'), χρησιμοποίησε την παράμετρο 'repeat' "
         "του create_calendar_event ΑΝΤΙ να φτιάξεις πολλαπλά μεμονωμένα events.\n"

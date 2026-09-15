@@ -12,8 +12,11 @@ from zoneinfo import ZoneInfo
 
 from app.tools.calendar_tool import (
     create_calendar_event,
+    delete_calendar_event,
+    find_free_time,
     get_events_for_day,
     list_upcoming_events,
+    update_calendar_event,
     _format_event_start,
 )
 
@@ -59,17 +62,19 @@ class TestListUpcomingEvents:
         result = list_upcoming_events.invoke({"max_results": 10})
         assert "Δεν υπάρχουν" in result
 
-    def test_εμφανίζει_events(self, fake_calendar):
+    def test_εμφανίζει_events_με_id(self, fake_calendar):
         fake_calendar.events.return_value.list.return_value.execute.return_value = {
             "items": [
-                {"summary": "Ιδιαίτερα AI", "start": {"dateTime": "2026-09-01T15:00:00Z"}},
-                {"summary": "Γενέθλια", "start": {"date": "2026-09-03"}},
+                {"id": "e1", "summary": "Ιδιαίτερα AI", "start": {"dateTime": "2026-09-01T15:00:00Z"}},
+                {"id": "e2", "summary": "Γενέθλια", "start": {"date": "2026-09-03"}},
             ]
         }
         result = list_upcoming_events.invoke({"max_results": 10})
-
+        
+        assert "ID: e1" in result 
         assert "Ιδιαίτερα AI" in result
         assert "18:00" in result
+        assert "ID: e2" in result 
         assert "Γενέθλια" in result
 
     def test_event_χωρίς_τίτλο(self, fake_calendar):
@@ -210,3 +215,73 @@ class TestGetEventsForDay:
 
     def test_κενή_μέρα(self, fake_calendar):
         assert get_events_for_day(datetime(2026, 9, 1, tzinfo=ATHENS)) == []
+
+
+class TestFindFreeTime:
+    def test_βρίσκει_ελεύθερα_διαστήματα(self, fake_calendar):
+        fake_calendar.events.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {"start": {"dateTime": "2026-09-01T10:00:00+03:00"}, "end": {"dateTime": "2026-09-01T11:00:00+03:00"}},
+                {"start": {"dateTime": "2026-09-01T14:00:00+03:00"}, "end": {"dateTime": "2026-09-01T15:00:00+03:00"}},
+            ]
+        }
+        result = find_free_time.invoke({"date": "2026-09-01", "duration_minutes": 60})
+
+        assert "09:00 έως 10:00" in result
+        assert "11:00 έως 14:00" in result
+        assert "15:00 έως 21:00" in result
+
+    def test_κενή_ημέρα_όλο_ελεύθερο(self, fake_calendar):
+        result = find_free_time.invoke({"date": "2026-09-01", "duration_minutes": 30})
+        assert "09:00 έως 21:00" in result
+
+    def test_καμία_θέση_για_μεγάλη_διάρκεια(self, fake_calendar):
+        fake_calendar.events.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {"start": {"dateTime": "2026-09-01T09:00:00+03:00"}, "end": {"dateTime": "2026-09-01T20:30:00+03:00"}},
+            ]
+        }
+        result = find_free_time.invoke({"date": "2026-09-01", "duration_minutes": 120})
+        assert "Δεν βρέθηκε" in result
+
+    def test_αγνοεί_ολοήμερα_events(self, fake_calendar):
+        fake_calendar.events.return_value.list.return_value.execute.return_value = {
+            "items": [{"start": {"date": "2026-09-01"}, "end": {"date": "2026-09-02"}}]
+        }
+        result = find_free_time.invoke({"date": "2026-09-01", "duration_minutes": 60})
+        assert "09:00 έως 21:00" in result
+
+    def test_άκυρη_ημερομηνία(self, fake_calendar):
+        result = find_free_time.invoke({"date": "αύριο"})
+        assert "δεν είναι έγκυρη" in result
+
+
+class TestDeleteCalendarEvent:
+    def test_διαγράφει(self, fake_calendar):
+        result = delete_calendar_event.invoke({"event_id": "e1"})
+        kwargs = fake_calendar.events.return_value.delete.call_args.kwargs
+        assert kwargs["eventId"] == "e1"
+        assert "e1" in result
+
+
+class TestUpdateCalendarEvent:
+    def test_αλλάζει_ώρα(self, fake_calendar):
+        fake_calendar.events.return_value.patch.return_value.execute.return_value = {"summary": "X"}
+        update_calendar_event.invoke(
+            {"event_id": "e1", "start_time": "2026-09-01T19:00:00+03:00", "end_time": "2026-09-01T20:00:00+03:00"}
+        )
+        body = fake_calendar.events.return_value.patch.call_args.kwargs["body"]
+        assert body["start"]["dateTime"] == "2026-09-01T19:00:00+03:00"
+        assert body["start"]["timeZone"] == "Europe/Athens"
+        assert "summary" not in body
+
+    def test_αλλάζει_μόνο_τίτλο(self, fake_calendar):
+        fake_calendar.events.return_value.patch.return_value.execute.return_value = {"summary": "Νέο"}
+        update_calendar_event.invoke({"event_id": "e1", "summary": "Νέο"})
+        body = fake_calendar.events.return_value.patch.call_args.kwargs["body"]
+        assert body == {"summary": "Νέο"}
+
+    def test_χωρίς_αλλαγές_δεν_καλεί_api(self, fake_calendar):
+        result = update_calendar_event.invoke({"event_id": "e1"})
+        fake_calendar.events.return_value.patch.assert_not_called()
+        assert "Δεν δόθηκε" in result

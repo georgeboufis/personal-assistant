@@ -32,7 +32,10 @@ class TestToolRegistration:
         assert names == {
             # Calendar
             "list_upcoming_events",
+            "find_free_time",
             "create_calendar_event",
+            "delete_calendar_event",
+            "update_calendar_event",
             # Gmail
             "list_recent_emails",
             "search_emails",
@@ -76,6 +79,8 @@ class TestConfirmationRules:
             "create_task",
             "complete_task",
             "delete_task",
+            "delete_calendar_event",
+            "update_calendar_event"
         }
 
     def test_κάθε_write_εργαλείο_είναι_καταχωρημένο(self):
@@ -169,6 +174,18 @@ class TestDescribeToolCall:
         for name in CONFIRMATION_REQUIRED_TOOLS:
             desc = describe_tool_call({"name": name, "args": {}})
             assert generic not in desc, f"λείπει περιγραφή για το {name}"
+    
+    def test_διαγραφή_event_προειδοποιεί(self):
+        desc = describe_tool_call({"name": "delete_calendar_event", "args": {"event_id": "e1"}})
+        assert "e1" in desc
+        assert "δεν αναιρείται" in desc
+
+    def test_τροποποίηση_event_δείχνει_αλλαγές(self):
+        desc = describe_tool_call(
+            {"name": "update_calendar_event", "args": {"event_id": "e1", "start_time": "2026-09-01T19:00:00+03:00"}}
+        )
+        assert "e1" in desc
+        assert "19:00" in desc
 
 
 # ===========================================================================
