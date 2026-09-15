@@ -23,7 +23,6 @@ from datetime import datetime
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
-from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
@@ -155,7 +154,7 @@ def describe_tool_call(tool_call: dict) -> str:
         )
 
     if name == "create_calendar_event":
-        return (
+        line = (
             f"📅 Νέο event στο ημερολόγιο\n"
             f"   Τίτλος: {args.get('summary', '?')}\n"
             f"   Από: {args.get('start_time', '?')}\n"
