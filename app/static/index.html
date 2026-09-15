@@ -9,17 +9,21 @@
       Όλο το CSS είναι εδώ (όχι ξεχωριστό αρχείο) ώστε το UI να είναι ΕΝΑ
       αυτόνομο αρχείο - πιο εύκολο να το καταλάβεις και να το τροποποιήσεις.
     */
-    :root {
-      --bg: #f7f7f8;
-      --surface: #ffffff;
-      --border: #e3e3e6;
-      --text: #1f1f24;
-      --text-muted: #6b6b73;
-      --accent: #2563eb;
-      --user-bubble: #2563eb;
-      --user-text: #ffffff;
-      --error: #dc2626;
-    }
+:root {
+  --bg: #121212;
+  --surface: #1e1b18;
+  --border: #33302b;
+  --text: #f2ece2;
+  --text-muted: #9a8f80;
+  --accent: #ff7a29;
+  --accent-hover: #ffa05c;
+  --accent-soft: #ffcf5c;
+  --user-bubble: #ff7a29;
+  --user-text: #121212;
+  --error: #ff6b6b;
+  --warn-bg: #2b2115;
+  --warn-border: #c9922a;
+}
 
     * { box-sizing: border-box; }
 
@@ -30,7 +34,97 @@
       color: var(--text);
       height: 100vh;
       display: flex;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      width: 100%;
+      height: 100%;
+    }
+
+    #main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
       flex-direction: column;
+      height: 100%;
+    }
+
+    #sidebar {
+      width: 280px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 18px 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar-header h2 {
+      font-size: 15px;
+      margin: 0;
+      font-weight: 600;
+    }
+
+    #refresh-dashboard {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+    }
+    #refresh-dashboard:hover {color: var(--accent); border-color: var(--accent); }
+    #refresh-dashboard.spinning { animation: spin 0.6s linear; }
+    @keyframes spin { to { transform: rotate(360deg); } } 
+
+    .sidebar-section h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin: 0 0 10px;
+    }
+
+    #dashboard-events, #dashboard-tasks {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .dashboard-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--text);
+    }
+
+    .dashboard-empty {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    @media (max-width: 640px) {
+      #sidebar { display: none; }
     }
 
     header {
@@ -94,14 +188,15 @@
     }
 
     .msg.error .bubble {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
+      background: var(--warn-bg);
+      border: 1px solid var(--error);
       color: var(--error);
     }
+    
 
     .bubble ul, .bubble ol { margin: 8px 0; padding-left: 22px; }
     .bubble code {
-      background: #f1f1f3;
+      background: var(--border);
       padding: 1px 5px;
       border-radius: 4px;
       font-size: 13px;
@@ -138,8 +233,8 @@
       max-width: 720px;
       width: 100%;
       margin: 0 auto;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
       border-radius: 14px;
       padding: 16px;
     }
@@ -147,7 +242,7 @@
     .confirm-title {
       font-size: 13px;
       font-weight: 600;
-      color: #92400e;
+      color: var(--accent-soft);
       margin-bottom: 10px;
       text-transform: uppercase;
       letter-spacing: 0.3px;
@@ -155,7 +250,7 @@
 
     .confirm-action {
       background: var(--surface);
-      border: 1px solid #fde68a;
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 12px 14px;
       font-size: 14px;
@@ -180,7 +275,7 @@
     .btn-approve { background: #16a34a; color: #fff; }
     .btn-approve:hover { background: #15803d; }
     .btn-decline { background: var(--surface); color: var(--text); border-color: var(--border); }
-    .btn-decline:hover { background: #f3f4f6; }
+    .btn-decline:hover { background: var(--border); }
     .confirm-buttons button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     footer {
@@ -235,6 +330,31 @@
 </head>
 <body>
 
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h2>Η ημέρα μου</h2>
+        <button id="refresh-dashboard" title="Ανανέωση">⟳</button>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Ραντεβού</h3>
+        <ul id="dashboard-events">
+          <li class="dashboard-empty">Φόρτωση...</li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Εργασίες</h3>
+        <ul id="dashboard-tasks">
+          <li class="dashboard-empty">Φόρτωση...</li>
+        </ul>
+      </div>
+    </aside>
+
+    <div id="main">
+    
+
   <header>
     <h1>Προσωπικός Βοηθός</h1>
     <div style="display:flex; gap:8px;">
@@ -262,6 +382,9 @@
     </div>
     <div id="hint">Enter για αποστολή · Shift+Enter για νέα γραμμή</div>
   </footer>
+
+    </div>
+  </div>
 
 <script>
 /*
@@ -488,6 +611,7 @@ async function sendMessage(overrideText = null, confirmFlag = null) {
   } finally {
     setBusy(false);
     inputEl.focus();
+    loadDashboard();
   }
 }
 
@@ -521,6 +645,49 @@ inputEl.addEventListener("keydown", (e) => {
     sendMessage();
   }
 });
+
+const dashboardEventsEl = document.getElementById("dashboard-events");
+const dashboardTasksEl = document.getElementById("dashboard-tasks");
+const refreshBtn = document.getElementById("refresh-dashboard");
+
+function renderDashboardList(container, items, emptyText) {
+  container.innerHTML = "";
+
+  if (!items || items.length === 0) {
+    const li = document.createElement("li");
+    li.className = "dashboard-empty";
+    li.textContent = emptyText;
+    container.appendChild(li);
+    return;
+  }
+
+  items.forEach((text) => {
+    const li = document.createElement("li");
+    li.className = "dashboard-item";
+    li.textContent = text;
+    container.appendChild(li);
+  });
+}
+
+async function loadDashboard() {
+  refreshBtn.classList.add("spinning");
+  try {
+    const response = await fetch("/dashboard");
+    const data = await response.json();
+    renderDashboardList(dashboardEventsEl, data.events, "Καμία υποχρέωση σήμερα 🎉");
+    renderDashboardList(dashboardTasksEl, data.tasks, "Καμία εκκρεμότητα");
+  } catch (err) {
+    renderDashboardList(dashboardEventsEl, null, "Σφάλμα φόρτωσης");
+    renderDashboardList(dashboardTasksEl, null, "Σφάλμα φόρτωσης");
+  } finally {
+    refreshBtn.classList.remove("spinning");
+  }
+}
+
+refreshBtn.addEventListener("click", loadDashboard);
+
+loadDashboard();
+
 
 newChatBtn.addEventListener("click", () => {
   sessionId = newSessionId();
