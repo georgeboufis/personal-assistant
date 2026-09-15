@@ -47,6 +47,8 @@ from app.tools.tasks_tool import (
     list_tasks,
 )
 
+from app.tools.weather_tool import get_weather
+
 # Η ζώνη ώρας του χρήστη. Χρησιμοποιούμε ονομασία IANA (όχι σταθερό
 # offset όπως "+03:00") ώστε η Python να χειρίζεται ΑΥΤΟΜΑΤΑ την αλλαγή
 # θερινής/χειμερινής ώρας - διαφορετικά θα έπρεπε να το θυμόμαστε και να
@@ -74,6 +76,7 @@ TOOLS = [
     create_task,
     complete_task,
     delete_task,
+    get_weather
 ]
 
 # Λεξικό "όνομα εργαλείου" -> "η ίδια η function", ώστε να μπορούμε να

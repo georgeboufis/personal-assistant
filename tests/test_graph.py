@@ -45,6 +45,7 @@ class TestToolRegistration:
             "create_task",
             "complete_task",
             "delete_task",
+            "get_weather"
         }
 
     def test_αντιστοίχιση_ονόματος_με_function(self):
