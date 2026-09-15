@@ -125,6 +125,42 @@ class TestCreateCalendarEvent:
              "end_time": "2026-09-01T19:00:00+03:00"}
         )
         assert "calendar.google.com" in result
+    
+    def test_επαναλαμβανόμενο_event_στέλνει_rrule(self, fake_calendar):
+        create_calendar_event.invoke(
+          {
+            "summary": "Ιδιαίτερα Μαθηματικά",
+            "start_time": "2026-09-16T18:30:00+03:00",
+            "end_time": "2026-09-16T19:30:00+03:00",
+            "repeat": "weekly"
+          }
+        )
+        body = fake_calendar.events.return_value.insert.call_args.kwargs["body"]
+        assert body["recurrence"] == ["RRULE:FREQ=WEEKLY"]
+    
+    def test_χωρίς_repeat_δεν_έχει_recurrence(self, fake_calendar):
+        create_calendar_event.invoke(
+            {
+                "summary": "Χ",
+                "start_time": "2026-09-16T18:30:00+03:00",
+                "end_time": "2026-09-16T19:30:00+03:00",
+
+            }
+        )
+        body = fake_calendar.events.return_value.insert.call_args.kwargs["body"]
+        assert "recurrence" not in body
+    
+    def test_άκυρο_repeat_αγνοείται_αθόρυβα(self, fake_calendar):
+        create_calendar_event.invoke(
+            {
+                "summary": "X",
+                "start_time": "2026-09-16T18:30:00+03:00",
+                "end_time": "2026-09-16T19:30:00+03:00",
+                "repeat": "κάτι_ανύπαρκτο",
+            }
+        )
+        body = fake_calendar.events.return_value.insert.call_args.kwargs["body"]
+        assert "recurrence" not in body
 
 
 class TestGetEventsForDay:
@@ -133,13 +169,21 @@ class TestGetEventsForDay:
     βλέπει το LLM.
     """
 
-    def test_ζητά_ακριβώς_τη_ζητούμενη_ημέρα(self, fake_calendar):
+    def test_default_αποκλείει_περασμένα_events(self, fake_calendar):
+        """Χωρίς include_past, η αναζήτηση ξεκινά τωρα, όχι τα μεσάνυχτα."""
         day = datetime(2026, 9, 1, 14, 30, tzinfo=ATHENS)
         get_events_for_day(day)
 
         kwargs = fake_calendar.events.return_value.list.call_args.kwargs
-        assert kwargs["timeMin"].startswith("2026-09-01T00:00:00")
+        assert kwargs["timeMin"] == "2026-09-01T14:30:00+03:00"
         assert kwargs["timeMax"].startswith("2026-09-02T00:00:00")
+    
+    def test_include_past_δείχνει_όλη_την_ημέρα(self, fake_calendar):
+        day = datetime(2026, 9, 1, 14, 30, tzinfo=ATHENS)
+        get_events_for_day(day, include_past=True)
+
+        kwargs = fake_calendar.events.return_value.list.call_args.kwargs
+        assert kwargs["timeMin"].startswith("2026-09-01T00:00:00")
 
     def test_επιστρέφει_λίστα_γραμμών(self, fake_calendar):
         fake_calendar.events.return_value.list.return_value.execute.return_value = {

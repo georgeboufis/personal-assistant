@@ -65,23 +65,29 @@ def _format_event_start(event: dict) -> str:
     return dt.strftime("%A %d/%m/%Y %H:%M")
 
 
-def get_events_for_day(day: datetime) -> list[str]:
+def get_events_for_day(day: datetime, include_past: bool = False) -> list[str]:
     """
     Επιστρέφει τα events μιας ΣΥΓΚΕΚΡΙΜΕΝΗΣ ημέρας, μορφοποιημένα.
 
     ΔΕΝ είναι @tool - δεν το βλέπει το LLM. Το καλούμε εμείς κατευθείαν
-    από την πρωινή ενημέρωση, όπου θέλουμε ντετερμινιστικό αποτέλεσμα και
-    όχι απόφαση του μοντέλου για το τι να ζητήσει.
+    από το dashboard και την πρωινή ενημέρωση.
 
     Args:
         day: οποιαδήποτε ώρα μέσα στη ζητούμενη ημέρα.
+        include_past: αν False (προεπιλογή), αποκλείει events που έχουν
+            ήδη τελειώσει μέχρι την ώρα του "day" - π.χ. αν ρωτήσεις στις
+            13:47, δεν θα δεις ό,τι έγινε το πρωί. Αν True, δείχνει ΟΛΗ
+            την ημέρα από τα μεσάνυχτα.
     """
     service = _get_calendar_service()
 
     # Από 00:00 έως 23:59:59 της ημέρας, σε τοπική ώρα.
     day_local = day.astimezone(USER_TIMEZONE)
-    start = day_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
+    day_start = day_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = day_start + timedelta(days=1)
+    
+    
+    start = day_start if include_past else day_local
 
     result = (
         service.events()
@@ -106,6 +112,13 @@ def get_events_for_day(day: datetime) -> list[str]:
         lines.append(line)
 
     return lines
+
+RECURRENCE_RULES = {
+    "daily": "RRULE:FREQ=DAILY",
+    "weekly": "RRULE:FREQ=WEEKLY",
+    "monthly": "RRULE:FREQ=MONTHLY",
+    "yearly": "RRULE:FREQ=YEARLY"
+}
 
 
 @tool
@@ -159,21 +172,26 @@ def create_calendar_event(
     start_time: str,
     end_time: str,
     description: str = "",
+    repeat: str = "",
 ) -> str:
     """
     Δημιουργεί ένα νέο event στο Google Calendar του χρήστη.
 
     Χρησιμοποίησε αυτό το εργαλείο όταν ο χρήστης ζητάει να προγραμματίσεις
-    ένα ραντεβού, meeting, υπενθύμιση, ή οποιοδήποτε event με συγκεκριμένη
+    ένα ραντεβού, meeting, μάθημα, ή οποιοδήποτε event με συγκεκριμένη
     ώρα έναρξης/λήξης.
 
     Args:
         summary: ο τίτλος του event (π.χ. "Ραντεβού με τον δικηγόρο").
         start_time: ώρα έναρξης σε ISO 8601 format ΜΕ timezone,
-            π.χ. "2026-09-01T15:00:00+03:00" (Ελλάδα = +03:00 το καλοκαίρι,
-            +02:00 τον χειμώνα).
+            π.χ. "2026-09-01T15:00:00+03:00".
         end_time: ώρα λήξης, ίδιο format με το start_time.
         description: προαιρετική περιγραφή/σημειώσεις για το event.
+        repeat: αν το event ΕΠΑΝΑΛΑΜΒΑΝΕΤΑΙ, δώσε "daily", "weekly",
+            "monthly" ή "yearly". Άφησέ το κενό για μονό event. Η
+            επανάληψη γίνεται στην ίδια ημέρα/ώρα με το πρώτο event
+            (π.χ. "weekly" σε event Τετάρτης 18:30 -> κάθε Τετάρτη στις
+            18:30), απεριόριστα στο μέλλον εκτός αν ο χρήστης πει τέλος.
     """
     service = _get_calendar_service()
 
@@ -188,12 +206,21 @@ def create_calendar_event(
         "end": {"dateTime": end_time, "timeZone": USER_TIMEZONE_NAME},
     }
 
+    rule = RECURRENCE_RULES.get(repeat.lower()) if repeat else None
+    if rule:
+        event_body["recurrence"] = [rule]
+
+    
     created_event = (
         service.events().insert(calendarId="primary", body=event_body).execute()
     )
 
-    return (
+    message = (
         f"Δημιουργήθηκε το event '{summary}' "
         f"({start_time} - {end_time}). "
-        f"Σύνδεσμος: {created_event.get('htmlLink', '(χωρίς link)')}"
     )
+
+    if rule:
+        message += f", επαναλαμβανόμενο ({repeat})"
+    message += f". Σύνδεσμος¨{created_event.get('htmlLink', '(χωρίς link)')}"
+    return message

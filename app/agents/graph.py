@@ -158,6 +158,9 @@ def describe_tool_call(tool_call: dict) -> str:
             f"   Από: {args.get('start_time', '?')}\n"
             f"   Έως: {args.get('end_time', '?')}"
         )
+        if args.get("repeat"):
+            line += f"\n  🔁 Επανάληψη: κάθε {args['repeat']}"
+        return line 
 
     if name == "create_task":
         due = args.get("due_date")
@@ -214,7 +217,7 @@ def execute_tool_calls(tool_calls: list[dict]) -> list[ToolMessage]:
                 f"ΣΦΑΛΜΑ: Δεν υπάρχει εργαλείο με όνομα '{tool_name}'. "
                 f"Διαθέσιμα εργαλεία: {', '.join(TOOLS_BY_NAME)}"
             )
-            log.error("το μοντέλο ζήτησε ανύπαρκτο εργαλείο: %s", tool_name)
+            log.error("Το μοντέλο ζήτησε ανύπαρκτο εργαλείο: %s", tool_name)
         except Exception as exc:
             elapsed = time.monotonic() - started
             content = (
@@ -268,6 +271,9 @@ def _build_system_prompt() -> str:
         "- Όταν δημιουργείς event, δώσε ΠΑΝΤΑ τις ώρες σε ISO 8601 με το "
         "σωστό offset της ζώνης ώρας του χρήστη.\n"
         "- Αν ο χρήστης δεν διευκρινίσει διάρκεια, υπέθεσε 1 ώρα.\n"
+        "- Αν ο χρήστης ζητήσει κάτι να επαναλαμβάνεται (π.χ. 'κάθε "
+        "Τετάρτη', 'κάθε μέρα'), χρησιμοποίησε την παράμετρο 'repeat' "
+        "του create_calendar_event ΑΝΤΙ να φτιάξεις πολλαπλά μεμονωμένα events.\n"
         "- Πριν δημιουργήσεις event, επιβεβαίωσε στην απάντησή σου την "
         "ακριβή ημερομηνία και ημέρα της εβδομάδας, ώστε ο χρήστης να "
         "μπορεί να εντοπίσει τυχόν λάθος.\n\n"
